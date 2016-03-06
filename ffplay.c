@@ -60,8 +60,8 @@
 
 #include <assert.h>
 
-const char program_name[] = "ffplay";
-const int program_birth_year = 2003;
+// const char program_name[] = "ffplay";
+// const int program_birth_year = 2003;
 
 #define MAX_QUEUE_SIZE (15 * 1024 * 1024)
 #define MIN_FRAMES 25
@@ -3708,7 +3708,8 @@ static void show_usage(void)
     av_log(NULL, AV_LOG_INFO, "\n");
 }
 
-void show_help_default(const char *opt, const char *arg)
+void show_help_default_ffplay(const char *opt, const char *arg);
+void show_help_default_ffplay(const char *opt, const char *arg)
 {
     av_log_set_callback(log_callback_help);
     show_usage();
@@ -3765,7 +3766,8 @@ static int lockmgr(void **mtx, enum AVLockOp op)
 }
 
 /* Called from the main */
-int main(int argc, char **argv)
+int main_ffplay(int argc, char **argv);
+int main_ffplay(int argc, char **argv)
 {
     int flags;
     VideoState *is;

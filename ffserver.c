@@ -73,8 +73,8 @@
 
 #define PATH_LENGTH 1024
 
-const char program_name[] = "ffserver";
-const int program_birth_year = 2000;
+// const char program_name[] = "ffserver";
+// const int program_birth_year = 2000;
 
 static const OptionDef options[];
 
@@ -3951,7 +3951,8 @@ static void opt_debug(void)
     snprintf(config.logfilename, sizeof(config.logfilename), "-");
 }
 
-void show_help_default(const char *opt, const char *arg)
+void show_help_default_ffserver(const char *opt, const char *arg);
+void show_help_default_ffserver(const char *opt, const char *arg)
 {
     printf("usage: ffserver [options]\n"
            "Hyper fast multi format Audio/Video streaming server\n");
@@ -3967,7 +3968,8 @@ static const OptionDef options[] = {
     { NULL },
 };
 
-int main(int argc, char **argv)
+int main_ffserver(int argc, char **argv);
+int main_ffserver(int argc, char **argv)
 {
     struct sigaction sigact = { { 0 } };
     int cfg_parsed;

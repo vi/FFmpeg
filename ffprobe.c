@@ -49,8 +49,8 @@
 #include "libpostproc/postprocess.h"
 #include "cmdutils.h"
 
-const char program_name[] = "ffprobe";
-const int program_birth_year = 2007;
+// const char program_name[] = "ffprobe";
+// const int program_birth_year = 2007;
 
 static int do_bitexact = 0;
 static int do_count_frames = 0;
@@ -2897,7 +2897,8 @@ static int opt_input_file_i(void *optctx, const char *opt, const char *arg)
     return 0;
 }
 
-void show_help_default(const char *opt, const char *arg)
+void show_help_default_ffprobe(const char *opt, const char *arg);
+void show_help_default_ffprobe(const char *opt, const char *arg)
 {
     av_log_set_callback(log_callback_help);
     show_usage();
@@ -3170,7 +3171,8 @@ static inline int check_section_show_entries(int section_id)
             do_show_##varname = 1;                                      \
     } while (0)
 
-int main(int argc, char **argv)
+int main_ffprobe(int argc, char **argv);
+int main_ffprobe(int argc, char **argv)
 {
     const Writer *w;
     WriterContext *wctx;

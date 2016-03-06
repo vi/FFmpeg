@@ -106,8 +106,8 @@
 
 #include "libavutil/avassert.h"
 
-const char program_name[] = "ffmpeg";
-const int program_birth_year = 2000;
+// const char program_name[] = "ffmpeg";
+// const int program_birth_year = 2000;
 
 static FILE *vstats_file;
 
@@ -4274,7 +4274,8 @@ static void log_callback_null(void *ptr, int level, const char *fmt, va_list vl)
 {
 }
 
-int main(int argc, char **argv)
+int main_ffmpeg(int argc, char **argv);
+int main_ffmpeg(int argc, char **argv)
 {
     int ret;
     int64_t ti;

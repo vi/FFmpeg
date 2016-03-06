@@ -2894,7 +2894,8 @@ static int opt_filter_complex_script(void *optctx, const char *opt, const char *
     return 0;
 }
 
-void show_help_default(const char *opt, const char *arg)
+void show_help_default_ffmpeg(const char *opt, const char *arg);
+void show_help_default_ffmpeg(const char *opt, const char *arg)
 {
     /* per-file options have at least one of those set */
     const int per_file = OPT_SPEC | OPT_OFFSET | OPT_PERFILE;
