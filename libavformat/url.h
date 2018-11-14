@@ -48,6 +48,7 @@ typedef struct URLContext {
     int64_t rw_timeout;         /**< maximum time to wait for (network) read/write operation completion, in mcs */
     const char *protocol_whitelist;
     const char *protocol_blacklist;
+    int min_packet_size;        /**< if non zero, the stream is packetized with this min packet size */
 } URLContext;
 
 typedef struct URLProtocol {
@@ -84,6 +85,7 @@ typedef struct URLProtocol {
     int (*url_get_file_handle)(URLContext *h);
     int (*url_get_multi_file_handle)(URLContext *h, int **handles,
                                      int *numhandles);
+    int (*url_get_short_seek)(URLContext *h);
     int (*url_shutdown)(URLContext *h, int flags);
     int priv_data_size;
     const AVClass *priv_data_class;
@@ -136,12 +138,15 @@ int ffurl_connect(URLContext *uc, AVDictionary **options);
  * @param options  A dictionary filled with protocol-private options. On return
  * this parameter will be destroyed and replaced with a dict containing options
  * that were not found. May be NULL.
+ * @param parent An enclosing URLContext, whose generic options should
+ *               be applied to this URLContext as well.
  * @return >= 0 in case of success, a negative value corresponding to an
  * AVERROR code in case of failure
  */
 int ffurl_open_whitelist(URLContext **puc, const char *filename, int flags,
                const AVIOInterruptCB *int_cb, AVDictionary **options,
-               const char *whitelist, const char* blacklist);
+               const char *whitelist, const char* blacklist,
+               URLContext *parent);
 
 int ffurl_open(URLContext **puc, const char *filename, int flags,
                const AVIOInterruptCB *int_cb, AVDictionary **options);
@@ -246,6 +251,13 @@ int ffurl_get_file_handle(URLContext *h);
 int ffurl_get_multi_file_handle(URLContext *h, int **handles, int *numhandles);
 
 /**
+ * Return the current short seek threshold value for this URL.
+ *
+ * @return threshold (>0) on success or <=0 on error.
+ */
+int ffurl_get_short_seek(URLContext *h);
+
+/**
  * Signal the URLContext that we are done reading or writing the stream.
  *
  * @param h pointer to the resource
@@ -258,7 +270,7 @@ int ffurl_get_multi_file_handle(URLContext *h, int **handles, int *numhandles);
 int ffurl_shutdown(URLContext *h, int flags);
 
 /**
- * Check if the user has requested to interrup a blocking function
+ * Check if the user has requested to interrupt a blocking function
  * associated with cb.
  */
 int ff_check_interrupt(AVIOInterruptCB *cb);

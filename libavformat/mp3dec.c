@@ -69,7 +69,9 @@ static int check(AVIOContext *pb, int64_t pos, uint32_t *header);
 static int mp3_read_probe(AVProbeData *p)
 {
     int max_frames, first_frames = 0;
+    int whole_used = 0;
     int frames, ret;
+    int framesizes, max_framesizes;
     uint32_t header;
     const uint8_t *buf, *buf0, *buf2, *end;
 
@@ -79,11 +81,12 @@ static int mp3_read_probe(AVProbeData *p)
         buf0++;
 
     max_frames = 0;
+    max_framesizes = 0;
     buf = buf0;
 
     for(; buf < end; buf= buf2+1) {
         buf2 = buf;
-        for(frames = 0; buf2 < end; frames++) {
+        for(framesizes = frames = 0; buf2 < end; frames++) {
             MPADecodeHeader h;
 
             header = AV_RB32(buf2);
@@ -91,19 +94,25 @@ static int mp3_read_probe(AVProbeData *p)
             if (ret != 0)
                 break;
             buf2 += h.frame_size;
+            framesizes += h.frame_size;
         }
         max_frames = FFMAX(max_frames, frames);
-        if(buf == buf0)
+        max_framesizes = FFMAX(max_framesizes, framesizes);
+        if(buf == buf0) {
             first_frames= frames;
+            if (buf2 == end + sizeof(uint32_t))
+                whole_used = 1;
+        }
     }
     // keep this in sync with ac3 probe, both need to avoid
     // issues with MPEG-files!
     if   (first_frames>=7) return AVPROBE_SCORE_EXTENSION + 1;
-    else if(max_frames>200)return AVPROBE_SCORE_EXTENSION;
-    else if(max_frames>=4 && max_frames >= p->buf_size/10000) return AVPROBE_SCORE_EXTENSION / 2;
+    else if(max_frames>200 && p->buf_size < 2*max_framesizes)return AVPROBE_SCORE_EXTENSION;
+    else if(max_frames>=4 && p->buf_size < 2*max_framesizes) return AVPROBE_SCORE_EXTENSION / 2;
     else if(ff_id3v2_match(buf0, ID3v2_DEFAULT_MAGIC) && 2*ff_id3v2_tag_len(buf0) >= p->buf_size)
                            return p->buf_size < PROBE_BUF_MAX ? AVPROBE_SCORE_EXTENSION / 4 : AVPROBE_SCORE_EXTENSION - 2;
-    else if(max_frames>=1 && max_frames >= p->buf_size/10000) return 1;
+    else if(first_frames > 1 && whole_used) return 5;
+    else if(max_frames>=1 && p->buf_size < 10*max_framesizes) return 1;
     else                   return 0;
 //mpegps_mp3_unrecognized_format.mpg has max_frames=3
 }
@@ -137,7 +146,7 @@ static void mp3_parse_info_tag(AVFormatContext *s, AVStream *st,
                                MPADecodeHeader *c, uint32_t spf)
 {
 #define LAST_BITS(k, n) ((k) & ((1 << (n)) - 1))
-#define MIDDLE_BITS(k, m, n) LAST_BITS((k) >> (m), ((n) - (m)))
+#define MIDDLE_BITS(k, m, n) LAST_BITS((k) >> (m), ((n) - (m) + 1))
 
     uint16_t crc;
     uint32_t v;
@@ -331,7 +340,7 @@ static int mp3_parse_vbr_tags(AVFormatContext *s, AVStream *st, int64_t base)
         st->duration = av_rescale_q(mp3->frames, (AVRational){spf, c.sample_rate},
                                     st->time_base);
     if (mp3->header_filesize && mp3->frames && !mp3->is_cbr)
-        st->codec->bit_rate = av_rescale(mp3->header_filesize, 8 * c.sample_rate, mp3->frames * (int64_t)spf);
+        st->codecpar->bit_rate = av_rescale(mp3->header_filesize, 8 * c.sample_rate, mp3->frames * (int64_t)spf);
 
     return 0;
 }
@@ -344,12 +353,15 @@ static int mp3_read_header(AVFormatContext *s)
     int ret;
     int i;
 
+    s->metadata = s->internal->id3v2_meta;
+    s->internal->id3v2_meta = NULL;
+
     st = avformat_new_stream(s, NULL);
     if (!st)
         return AVERROR(ENOMEM);
 
-    st->codec->codec_type = AVMEDIA_TYPE_AUDIO;
-    st->codec->codec_id = AV_CODEC_ID_MP3;
+    st->codecpar->codec_type = AVMEDIA_TYPE_AUDIO;
+    st->codecpar->codec_id = AV_CODEC_ID_MP3;
     st->need_parsing = AVSTREAM_PARSE_FULL_RAW;
     st->start_time = 0;
 
@@ -362,7 +374,7 @@ static int mp3_read_header(AVFormatContext *s)
     if (!av_dict_get(s->metadata, "", NULL, AV_DICT_IGNORE_SUFFIX))
         ff_id3v1_read(s);
 
-    if(s->pb->seekable)
+    if(s->pb->seekable & AVIO_SEEKABLE_NORMAL)
         mp3->filesize = avio_size(s->pb);
 
     if (mp3_parse_vbr_tags(s, st, off) < 0)
@@ -388,7 +400,7 @@ static int mp3_read_header(AVFormatContext *s)
             if (ret >= 0 &&
                 (header & SAME_HEADER_MASK) == (header2 & SAME_HEADER_MASK))
             {
-                av_log(s, AV_LOG_INFO, "Skipping %d bytes of junk at %"PRId64".\n", i, off);
+                av_log(s, i > 0 ? AV_LOG_INFO : AV_LOG_VERBOSE, "Skipping %d bytes of junk at %"PRId64".\n", i, off);
                 ret = avio_seek(s->pb, off + i, SEEK_SET);
                 if (ret < 0)
                     return ret;
@@ -452,7 +464,8 @@ static int check(AVIOContext *pb, int64_t pos, uint32_t *ret_header)
         return CHECK_SEEK_FAILED;
 
     ret = avio_read(pb, &header_buf[0], 4);
-    if (ret < 0)
+    /* We should always find four bytes for a valid mpa header. */
+    if (ret < 4)
         return CHECK_SEEK_FAILED;
 
     header = AV_RB32(&header_buf[0]);
@@ -499,9 +512,9 @@ static int64_t mp3_sync(AVFormatContext *s, int64_t target_pos, int flags)
                     return AVERROR(EINVAL);
                 }
             }
-            if ((target_pos - pos)*dir <= 0 && abs(MIN_VALID/2-j) < score) {
+            if ((target_pos - pos)*dir <= 0 && FFABS(MIN_VALID/2-j) < score) {
                 candidate = pos;
-                score = abs(MIN_VALID/2-j);
+                score = FFABS(MIN_VALID/2-j);
             }
             pos += ret;
         }

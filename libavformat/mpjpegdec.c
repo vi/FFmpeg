@@ -126,7 +126,7 @@ static int mpjpeg_read_probe(AVProbeData *p)
 
     ret = (parse_multipart_header(pb, &size, "--", NULL) >= 0) ? AVPROBE_SCORE_MAX : 0;
 
-    av_free(pb);
+    avio_context_free(&pb);
 
     return ret;
 }
@@ -151,8 +151,8 @@ static int mpjpeg_read_header(AVFormatContext *s)
     if (!st)
         return AVERROR(ENOMEM);
 
-    st->codec->codec_type = AVMEDIA_TYPE_VIDEO;
-    st->codec->codec_id   = AV_CODEC_ID_MJPEG;
+    st->codecpar->codec_type = AVMEDIA_TYPE_VIDEO;
+    st->codecpar->codec_id   = AV_CODEC_ID_MJPEG;
 
     avpriv_set_pts_info(st, 60, 1, 25);
 
@@ -201,7 +201,7 @@ static int parse_multipart_header(AVIOContext *pb,
         if (log_ctx)
         av_log(log_ctx,
             AV_LOG_ERROR,
-            "Expected boundary '%s' not found, instead found a line of %zu bytes\n",
+            "Expected boundary '%s' not found, instead found a line of %"SIZE_SPECIFIER" bytes\n",
             expected_boundary,
             strlen(line));
 
@@ -375,7 +375,7 @@ static int mpjpeg_read_packet(AVFormatContext *s, AVPacket *pkt)
 #define OFFSET(x) offsetof(MPJPEGDemuxContext, x)
 
 #define DEC AV_OPT_FLAG_DECODING_PARAM
-const AVOption mpjpeg_options[] = {
+static const AVOption mpjpeg_options[] = {
     { "strict_mime_boundary",  "require MIME boundaries match", OFFSET(strict_mime_boundary), AV_OPT_TYPE_BOOL, {.i64 = 0}, 0, 1, DEC },
     { NULL }
 };

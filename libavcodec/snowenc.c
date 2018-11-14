@@ -22,6 +22,7 @@
 #include "libavutil/libm.h"
 #include "libavutil/log.h"
 #include "libavutil/opt.h"
+#include "libavutil/pixdesc.h"
 #include "avcodec.h"
 #include "internal.h"
 #include "snow_dwt.h"
@@ -32,8 +33,6 @@
 
 #include "mpegvideo.h"
 #include "h263.h"
-
-#define FF_ME_ITER 50
 
 static av_cold int encode_init(AVCodecContext *avctx)
 {
@@ -52,14 +51,8 @@ FF_ENABLE_DEPRECATION_WARNINGS
        && (avctx->flags & AV_CODEC_FLAG_QSCALE)
        && avctx->global_quality == 0){
         av_log(avctx, AV_LOG_ERROR, "The 9/7 wavelet is incompatible with lossless mode.\n");
-        return -1;
+        return AVERROR(EINVAL);
     }
-#if FF_API_MOTION_EST
-FF_DISABLE_DEPRECATION_WARNINGS
-    if (avctx->me_method == ME_ITER)
-        s->motion_est = FF_ME_ITER;
-FF_ENABLE_DEPRECATION_WARNINGS
-#endif
 
     s->spatial_decomposition_type= s->pred; //FIXME add decorrelator type r transform_type
 
@@ -86,6 +79,8 @@ FF_ENABLE_DEPRECATION_WARNINGS
 
     s->m.avctx   = avctx;
     s->m.bit_rate= avctx->bit_rate;
+    s->m.lmin    = avctx->mb_lmin;
+    s->m.lmax    = avctx->mb_lmax;
 
     s->m.me.temp      =
     s->m.me.scratchpad= av_mallocz_array((avctx->width+64), 2*16*2*sizeof(uint8_t));
@@ -106,11 +101,12 @@ FF_ENABLE_DEPRECATION_WARNINGS
         if (!avctx->stats_out)
             return AVERROR(ENOMEM);
     }
-    if((avctx->flags&AV_CODEC_FLAG_PASS2) || !(avctx->flags&CODEC_FLAG_QSCALE)){
-        if(ff_rate_control_init(&s->m) < 0)
-            return -1;
+    if((avctx->flags&AV_CODEC_FLAG_PASS2) || !(avctx->flags&AV_CODEC_FLAG_QSCALE)){
+        ret = ff_rate_control_init(&s->m);
+        if(ret < 0)
+            return ret;
     }
-    s->pass1_rc= !(avctx->flags & (AV_CODEC_FLAG_QSCALE|CODEC_FLAG_PASS2));
+    s->pass1_rc= !(avctx->flags & (AV_CODEC_FLAG_QSCALE|AV_CODEC_FLAG_PASS2));
 
     switch(avctx->pix_fmt){
     case AV_PIX_FMT_YUV444P:
@@ -130,9 +126,15 @@ FF_ENABLE_DEPRECATION_WARNINGS
         break;*/
     default:
         av_log(avctx, AV_LOG_ERROR, "pixel format not supported\n");
-        return -1;
+        return AVERROR_PATCHWELCOME;
     }
-    avcodec_get_chroma_sub_sample(avctx->pix_fmt, &s->chroma_h_shift, &s->chroma_v_shift);
+
+    ret = av_pix_fmt_get_chroma_sub_sample(avctx->pix_fmt, &s->chroma_h_shift,
+                                           &s->chroma_v_shift);
+    if (ret) {
+        av_log(avctx, AV_LOG_ERROR, "pixel format invalid or unknown\n");
+        return ret;
+    }
 
     ff_set_cmp(&s->mecc, s->mecc.me_cmp, s->avctx->me_cmp);
     ff_set_cmp(&s->mecc, s->mecc.me_sub_cmp, s->avctx->me_sub_cmp);
@@ -177,7 +179,7 @@ static int pix_sum(uint8_t * pix, int line_size, int w, int h)
 static int pix_norm1(uint8_t * pix, int line_size, int w)
 {
     int s, i, j;
-    uint32_t *sq = ff_square_tab + 256;
+    const uint32_t *sq = ff_square_tab + 256;
 
     s = 0;
     for (i = 0; i < w; i++) {
@@ -833,7 +835,7 @@ static int encode_subband_c0run(SnowContext *s, SubBand *b, const IDWTELEM *src,
         for(y=0; y<h; y++){
             if(s->c.bytestream_end - s->c.bytestream < w*40){
                 av_log(s->avctx, AV_LOG_ERROR, "encoded frame too large\n");
-                return -1;
+                return AVERROR(ENOMEM);
             }
             for(x=0; x<w; x++){
                 int v, p=0;
@@ -1621,11 +1623,7 @@ static int encode_frame(AVCodecContext *avctx, AVPacket *pkt,
         s->lambda = 0;
     }//else keep previous frame's qlog until after motion estimation
 
-    if (s->current_picture->data[0]
-#if FF_API_EMU_EDGE
-        && !(s->avctx->flags&CODEC_FLAG_EMU_EDGE)
-#endif
-        ) {
+    if (s->current_picture->data[0]) {
         int w = s->avctx->width;
         int h = s->avctx->height;
 
@@ -1640,11 +1638,16 @@ static int encode_frame(AVCodecContext *avctx, AVPacket *pkt,
                                     s->current_picture->linesize[2], w>>s->chroma_h_shift, h>>s->chroma_v_shift,
                                     EDGE_WIDTH>>s->chroma_h_shift, EDGE_WIDTH>>s->chroma_v_shift, EDGE_TOP | EDGE_BOTTOM);
         }
+        emms_c();
     }
 
     ff_snow_frame_start(s);
+#if FF_API_CODED_FRAME
+FF_DISABLE_DEPRECATION_WARNINGS
     av_frame_unref(avctx->coded_frame);
     ret = av_frame_ref(avctx->coded_frame, s->current_picture);
+FF_ENABLE_DEPRECATION_WARNINGS
+#endif
     if (ret < 0)
         return ret;
 
@@ -1673,9 +1676,6 @@ static int encode_frame(AVCodecContext *avctx, AVPacket *pkt,
         s->m.b8_stride= 2*s->m.mb_width+1;
         s->m.f_code=1;
         s->m.pict_type = pic->pict_type;
-#if FF_API_MOTION_EST
-        s->m.me_method= s->avctx->me_method;
-#endif
         s->m.motion_est= s->motion_est;
         s->m.me.scene_change_score=0;
         s->m.me.dia_size = avctx->dia_size;
@@ -1856,6 +1856,7 @@ FF_ENABLE_DEPRECATION_WARNINGS
         }
 
     }
+    emms_c();
 
     update_last_header_values(s);
 
@@ -1876,10 +1877,14 @@ FF_ENABLE_DEPRECATION_WARNINGS
     if(avctx->flags&AV_CODEC_FLAG_PASS1)
         ff_write_pass1_stats(&s->m);
     s->m.last_pict_type = s->m.pict_type;
+#if FF_API_STAT_BITS
+FF_DISABLE_DEPRECATION_WARNINGS
     avctx->frame_bits = s->m.frame_bits;
     avctx->mv_bits = s->m.mv_bits;
     avctx->misc_bits = s->m.misc_bits;
     avctx->p_tex_bits = s->m.p_tex_bits;
+FF_ENABLE_DEPRECATION_WARNINGS
+#endif
 
     emms_c();
 
@@ -1917,8 +1922,11 @@ static av_cold int encode_end(AVCodecContext *avctx)
 #define OFFSET(x) offsetof(SnowContext, x)
 #define VE AV_OPT_FLAG_VIDEO_PARAM | AV_OPT_FLAG_ENCODING_PARAM
 static const AVOption options[] = {
-    FF_MPV_COMMON_OPTS
-    { "iter",           NULL, 0, AV_OPT_TYPE_CONST, { .i64 = FF_ME_ITER }, 0, 0, FF_MPV_OPT_FLAGS, "motion_est" },
+    {"motion_est", "motion estimation algorithm", OFFSET(motion_est), AV_OPT_TYPE_INT, {.i64 = FF_ME_EPZS }, FF_ME_ZERO, FF_ME_ITER, VE, "motion_est" },
+    { "zero", NULL, 0, AV_OPT_TYPE_CONST, { .i64 = FF_ME_ZERO }, 0, 0, VE, "motion_est" },
+    { "epzs", NULL, 0, AV_OPT_TYPE_CONST, { .i64 = FF_ME_EPZS }, 0, 0, VE, "motion_est" },
+    { "xone", NULL, 0, AV_OPT_TYPE_CONST, { .i64 = FF_ME_XONE }, 0, 0, VE, "motion_est" },
+    { "iter", NULL, 0, AV_OPT_TYPE_CONST, { .i64 = FF_ME_ITER }, 0, 0, VE, "motion_est" },
     { "memc_only",      "Only do ME/MC (I frames -> ref, P frame -> ME+MC).",   OFFSET(memc_only), AV_OPT_TYPE_BOOL, { .i64 = 0 }, 0, 1, VE },
     { "no_bitstream",   "Skip final bitstream writeout.",                    OFFSET(no_bitstream), AV_OPT_TYPE_BOOL, { .i64 = 0 }, 0, 1, VE },
     { "intra_penalty",  "Penalty for intra blocks in block decission",      OFFSET(intra_penalty), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, INT_MAX, VE },
@@ -1955,132 +1963,3 @@ AVCodec ff_snow_encoder = {
     .caps_internal  = FF_CODEC_CAP_INIT_THREADSAFE |
                       FF_CODEC_CAP_INIT_CLEANUP,
 };
-
-
-#ifdef TEST
-#undef malloc
-#undef free
-#undef printf
-
-#include "libavutil/lfg.h"
-#include "libavutil/mathematics.h"
-
-int main(void){
-#define width  256
-#define height 256
-    int buffer[2][width*height];
-    SnowContext s;
-    int i;
-    AVLFG prng;
-    s.spatial_decomposition_count=6;
-    s.spatial_decomposition_type=1;
-
-    s.temp_dwt_buffer  = av_mallocz_array(width, sizeof(DWTELEM));
-    s.temp_idwt_buffer = av_mallocz_array(width, sizeof(IDWTELEM));
-
-    if (!s.temp_dwt_buffer || !s.temp_idwt_buffer) {
-        fprintf(stderr, "Failed to allocate memory\n");
-        return 1;
-    }
-
-    av_lfg_init(&prng, 1);
-
-    printf("testing 5/3 DWT\n");
-    for(i=0; i<width*height; i++)
-        buffer[0][i] = buffer[1][i] = av_lfg_get(&prng) % 54321 - 12345;
-
-    ff_spatial_dwt(buffer[0], s.temp_dwt_buffer, width, height, width, s.spatial_decomposition_type, s.spatial_decomposition_count);
-    ff_spatial_idwt((IDWTELEM*)buffer[0], s.temp_idwt_buffer, width, height, width, s.spatial_decomposition_type, s.spatial_decomposition_count);
-
-    for(i=0; i<width*height; i++)
-        if(buffer[0][i]!= buffer[1][i]) printf("fsck: %6d %12d %7d\n",i, buffer[0][i], buffer[1][i]);
-
-    printf("testing 9/7 DWT\n");
-    s.spatial_decomposition_type=0;
-    for(i=0; i<width*height; i++)
-        buffer[0][i] = buffer[1][i] = av_lfg_get(&prng) % 54321 - 12345;
-
-    ff_spatial_dwt(buffer[0], s.temp_dwt_buffer, width, height, width, s.spatial_decomposition_type, s.spatial_decomposition_count);
-    ff_spatial_idwt((IDWTELEM*)buffer[0], s.temp_idwt_buffer, width, height, width, s.spatial_decomposition_type, s.spatial_decomposition_count);
-
-    for(i=0; i<width*height; i++)
-        if(FFABS(buffer[0][i] - buffer[1][i])>20) printf("fsck: %6d %12d %7d\n",i, buffer[0][i], buffer[1][i]);
-
-    {
-    int level, orientation, x, y;
-    int64_t errors[8][4];
-    int64_t g=0;
-
-        memset(errors, 0, sizeof(errors));
-        s.spatial_decomposition_count=3;
-        s.spatial_decomposition_type=0;
-        for(level=0; level<s.spatial_decomposition_count; level++){
-            for(orientation=level ? 1 : 0; orientation<4; orientation++){
-                int w= width  >> (s.spatial_decomposition_count-level);
-                int h= height >> (s.spatial_decomposition_count-level);
-                int stride= width  << (s.spatial_decomposition_count-level);
-                DWTELEM *buf= buffer[0];
-                int64_t error=0;
-
-                if(orientation&1) buf+=w;
-                if(orientation>1) buf+=stride>>1;
-
-                memset(buffer[0], 0, sizeof(int)*width*height);
-                buf[w/2 + h/2*stride]= 256*256;
-                ff_spatial_idwt((IDWTELEM*)buffer[0], s.temp_idwt_buffer, width, height, width, s.spatial_decomposition_type, s.spatial_decomposition_count);
-                for(y=0; y<height; y++){
-                    for(x=0; x<width; x++){
-                        int64_t d= buffer[0][x + y*width];
-                        error += d*d;
-                        if(FFABS(width/2-x)<9 && FFABS(height/2-y)<9 && level==2) printf("%8"PRId64" ", d);
-                    }
-                    if(FFABS(height/2-y)<9 && level==2) printf("\n");
-                }
-                error= (int)(sqrt(error)+0.5);
-                errors[level][orientation]= error;
-                if(g) g=av_gcd(g, error);
-                else g= error;
-            }
-        }
-        printf("static int const visual_weight[][4]={\n");
-        for(level=0; level<s.spatial_decomposition_count; level++){
-            printf("  {");
-            for(orientation=0; orientation<4; orientation++){
-                printf("%8"PRId64",", errors[level][orientation]/g);
-            }
-            printf("},\n");
-        }
-        printf("};\n");
-        {
-            int level=2;
-            int w= width  >> (s.spatial_decomposition_count-level);
-            //int h= height >> (s.spatial_decomposition_count-level);
-            int stride= width  << (s.spatial_decomposition_count-level);
-            DWTELEM *buf= buffer[0];
-            int64_t error=0;
-
-            buf+=w;
-            buf+=stride>>1;
-
-            memset(buffer[0], 0, sizeof(int)*width*height);
-            for(y=0; y<height; y++){
-                for(x=0; x<width; x++){
-                    int tab[4]={0,2,3,1};
-                    buffer[0][x+width*y]= 256*256*tab[(x&1) + 2*(y&1)];
-                }
-            }
-            ff_spatial_dwt(buffer[0], s.temp_dwt_buffer, width, height, width, s.spatial_decomposition_type, s.spatial_decomposition_count);
-            for(y=0; y<height; y++){
-                for(x=0; x<width; x++){
-                    int64_t d= buffer[0][x + y*width];
-                    error += d*d;
-                    if(FFABS(width/2-x)<9 && FFABS(height/2-y)<9) printf("%8"PRId64" ", d);
-                }
-                if(FFABS(height/2-y)<9) printf("\n");
-            }
-        }
-
-    }
-    return 0;
-}
-#endif /* TEST */

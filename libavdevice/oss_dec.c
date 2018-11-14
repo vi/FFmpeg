@@ -23,17 +23,12 @@
 
 #include <stdint.h>
 
-#if HAVE_SOUNDCARD_H
-#include <soundcard.h>
-#else
-#include <sys/soundcard.h>
-#endif
-
 #if HAVE_UNISTD_H
 #include <unistd.h>
 #endif
 #include <fcntl.h>
 #include <sys/ioctl.h>
+#include <sys/soundcard.h>
 
 #include "libavutil/internal.h"
 #include "libavutil/opt.h"
@@ -57,16 +52,16 @@ static int audio_read_header(AVFormatContext *s1)
         return AVERROR(ENOMEM);
     }
 
-    ret = ff_oss_audio_open(s1, 0, s1->filename);
+    ret = ff_oss_audio_open(s1, 0, s1->url);
     if (ret < 0) {
         return AVERROR(EIO);
     }
 
     /* take real parameters */
-    st->codec->codec_type = AVMEDIA_TYPE_AUDIO;
-    st->codec->codec_id = s->codec_id;
-    st->codec->sample_rate = s->sample_rate;
-    st->codec->channels = s->channels;
+    st->codecpar->codec_type = AVMEDIA_TYPE_AUDIO;
+    st->codecpar->codec_id = s->codec_id;
+    st->codecpar->sample_rate = s->sample_rate;
+    st->codecpar->channels = s->channels;
 
     avpriv_set_pts_info(st, 64, 1, 1000000);  /* 64 bits pts in us */
     return 0;

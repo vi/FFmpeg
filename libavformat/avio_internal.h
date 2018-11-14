@@ -24,11 +24,6 @@
 
 #include "libavutil/log.h"
 
-typedef struct AVIOInternal {
-    URLContext *h;
-    void *hlsopts;
-} AVIOInternal;
-
 extern const AVClass ff_avio_class;
 
 int ffio_init_context(AVIOContext *s,
@@ -57,14 +52,6 @@ int ffio_init_context(AVIOContext *s,
  * @return number of bytes read or AVERROR
  */
 int ffio_read_indirect(AVIOContext *s, unsigned char *buf, int size, const unsigned char **data);
-
-/**
- * Read size bytes from AVIOContext into buf.
- * This reads at most 1 packet. If that is not enough fewer bytes will be
- * returned.
- * @return number of bytes read or AVERROR
- */
-int ffio_read_partial(AVIOContext *s, unsigned char *buf, int size);
 
 void ffio_fill(AVIOContext *s, int b, int count);
 
@@ -116,6 +103,8 @@ void ffio_init_checksum(AVIOContext *s,
 unsigned long ffio_get_checksum(AVIOContext *s);
 unsigned long ff_crc04C11DB7_update(unsigned long checksum, const uint8_t *buf,
                                     unsigned int len);
+unsigned long ff_crcEDB88320_update(unsigned long checksum, const uint8_t *buf,
+                                    unsigned int len);
 unsigned long ff_crcA001_update(unsigned long checksum, const uint8_t *buf,
                                 unsigned int len);
 
@@ -142,6 +131,14 @@ int ffio_open_dyn_packet_buf(AVIOContext **s, int max_packet_size);
  * AVERROR code in case of failure
  */
 int ffio_fdopen(AVIOContext **s, URLContext *h);
+
+/**
+ * Return the URLContext associated with the AVIOContext
+ *
+ * @param s IO context
+ * @return pointer to URLContext or NULL.
+ */
+URLContext *ffio_geturlcontext(AVIOContext *s);
 
 /**
  * Open a write-only fake memory stream. The written data is not stored

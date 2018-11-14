@@ -230,12 +230,14 @@ gdigrab_read_header(AVFormatContext *s1)
     HBITMAP hbmp   = NULL;
     void *buffer   = NULL;
 
-    const char *filename = s1->filename;
+    const char *filename = s1->url;
     const char *name     = NULL;
     AVStream   *st       = NULL;
 
     int bpp;
+    int horzres;
     int vertres;
+    int desktophorzres;
     int desktopvertres;
     RECT virtual_rect;
     RECT clip_rect;
@@ -279,11 +281,13 @@ gdigrab_read_header(AVFormatContext *s1)
         GetClientRect(hwnd, &virtual_rect);
     } else {
         /* desktop -- get the right height and width for scaling DPI */
+        horzres = GetDeviceCaps(source_hdc, HORZRES);
         vertres = GetDeviceCaps(source_hdc, VERTRES);
+        desktophorzres = GetDeviceCaps(source_hdc, DESKTOPHORZRES);
         desktopvertres = GetDeviceCaps(source_hdc, DESKTOPVERTRES);
         virtual_rect.left = GetSystemMetrics(SM_XVIRTUALSCREEN);
         virtual_rect.top = GetSystemMetrics(SM_YVIRTUALSCREEN);
-        virtual_rect.right = (virtual_rect.left + GetSystemMetrics(SM_CXVIRTUALSCREEN)) * desktopvertres / vertres;
+        virtual_rect.right = (virtual_rect.left + GetSystemMetrics(SM_CXVIRTUALSCREEN)) * desktophorzres / horzres;
         virtual_rect.bottom = (virtual_rect.top + GetSystemMetrics(SM_CYVIRTUALSCREEN)) * desktopvertres / vertres;
     }
 
@@ -403,10 +407,11 @@ gdigrab_read_header(AVFormatContext *s1)
         }
     }
 
-    st->codec->codec_type = AVMEDIA_TYPE_VIDEO;
-    st->codec->codec_id   = AV_CODEC_ID_BMP;
-    st->codec->time_base  = gdigrab->time_base;
-    st->codec->bit_rate   = (gdigrab->header_size + gdigrab->frame_size) * 1/av_q2d(gdigrab->time_base) * 8;
+    st->avg_frame_rate = av_inv_q(gdigrab->time_base);
+
+    st->codecpar->codec_type = AVMEDIA_TYPE_VIDEO;
+    st->codecpar->codec_id   = AV_CODEC_ID_BMP;
+    st->codecpar->bit_rate   = (gdigrab->header_size + gdigrab->frame_size) * 1/av_q2d(gdigrab->time_base) * 8;
 
     return 0;
 
@@ -446,7 +451,9 @@ static void paint_mouse_pointer(AVFormatContext *s1, struct gdigrab *gdigrab)
         POINT pos;
         RECT clip_rect = gdigrab->clip_rect;
         HWND hwnd = gdigrab->hwnd;
+        int horzres = GetDeviceCaps(gdigrab->source_hdc, HORZRES);
         int vertres = GetDeviceCaps(gdigrab->source_hdc, VERTRES);
+        int desktophorzres = GetDeviceCaps(gdigrab->source_hdc, DESKTOPHORZRES);
         int desktopvertres = GetDeviceCaps(gdigrab->source_hdc, DESKTOPVERTRES);
         info.hbmMask = NULL;
         info.hbmColor = NULL;
@@ -482,7 +489,7 @@ static void paint_mouse_pointer(AVFormatContext *s1, struct gdigrab *gdigrab)
         }
 
         //that would keep the correct location of mouse with hidpi screens
-        pos.x = pos.x * desktopvertres / vertres;
+        pos.x = pos.x * desktophorzres / horzres;
         pos.y = pos.y * desktopvertres / vertres;
 
         av_log(s1, AV_LOG_DEBUG, "Cursor pos (%li,%li) -> (%li,%li)\n",
@@ -621,7 +628,7 @@ static int gdigrab_read_close(AVFormatContext *s1)
 static const AVOption options[] = {
     { "draw_mouse", "draw the mouse pointer", OFFSET(draw_mouse), AV_OPT_TYPE_INT, {.i64 = 1}, 0, 1, DEC },
     { "show_region", "draw border around capture area", OFFSET(show_region), AV_OPT_TYPE_INT, {.i64 = 0}, 0, 1, DEC },
-    { "framerate", "set video frame rate", OFFSET(framerate), AV_OPT_TYPE_VIDEO_RATE, {.str = "ntsc"}, 0, 0, DEC },
+    { "framerate", "set video frame rate", OFFSET(framerate), AV_OPT_TYPE_VIDEO_RATE, {.str = "ntsc"}, 0, INT_MAX, DEC },
     { "video_size", "set video frame size", OFFSET(width), AV_OPT_TYPE_IMAGE_SIZE, {.str = NULL}, 0, 0, DEC },
     { "offset_x", "capture area x offset", OFFSET(offset_x), AV_OPT_TYPE_INT, {.i64 = 0}, INT_MIN, INT_MAX, DEC },
     { "offset_y", "capture area y offset", OFFSET(offset_y), AV_OPT_TYPE_INT, {.i64 = 0}, INT_MIN, INT_MAX, DEC },

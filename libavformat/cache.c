@@ -29,7 +29,7 @@
 
 #include "libavutil/avassert.h"
 #include "libavutil/avstring.h"
-#include "libavutil/file.h"
+#include "libavutil/internal.h"
 #include "libavutil/opt.h"
 #include "libavutil/tree.h"
 #include "avformat.h"
@@ -77,7 +77,7 @@ static int cache_open(URLContext *h, const char *arg, int flags, AVDictionary **
 
     av_strstart(arg, "cache:", &arg);
 
-    c->fd = av_tempfile("ffcache", &buffername, 0, h);
+    c->fd = avpriv_tempfile("ffcache", &buffername, 0, h);
     if (c->fd < 0){
         av_log(h, AV_LOG_ERROR, "Failed to create tempfile\n");
         return c->fd;
@@ -87,7 +87,7 @@ static int cache_open(URLContext *h, const char *arg, int flags, AVDictionary **
     av_freep(&buffername);
 
     return ffurl_open_whitelist(&c->inner, arg, flags, &h->interrupt_callback,
-                                options, h->protocol_whitelist, h->protocol_blacklist);
+                                options, h->protocol_whitelist, h->protocol_blacklist, h);
 }
 
 static int add_entry(URLContext *h, const unsigned char *buf, int size)
@@ -201,7 +201,7 @@ static int cache_read(URLContext *h, unsigned char *buf, int size)
     }
 
     r = ffurl_read(c->inner, buf, size);
-    if (r == 0 && size>0) {
+    if (r == AVERROR_EOF && size>0) {
         c->is_true_eof = 1;
         av_assert0(c->end >= c->logical_pos);
     }
@@ -263,7 +263,7 @@ resolve_eof:
                 if (whence == SEEK_SET)
                     size = FFMIN(sizeof(tmp), pos - c->logical_pos);
                 ret = cache_read(h, tmp, size);
-                if (ret == 0 && whence == SEEK_END) {
+                if (ret == AVERROR_EOF && whence == SEEK_END) {
                     av_assert0(c->is_true_eof);
                     goto resolve_eof;
                 }

@@ -98,7 +98,7 @@ static av_cold int concat_open(URLContext *h, const char *uri, int flags)
 
         /* creating URLContext */
         err = ffurl_open_whitelist(&uc, node_uri, flags,
-                                   &h->interrupt_callback, NULL, h->protocol_whitelist, h->protocol_blacklist);
+                                   &h->interrupt_callback, NULL, h->protocol_whitelist, h->protocol_blacklist, h);
         if (err < 0)
             break;
 
@@ -135,19 +135,20 @@ static int concat_read(URLContext *h, unsigned char *buf, int size)
 
     while (size > 0) {
         result = ffurl_read(nodes[i].uc, buf, size);
-        if (result < 0)
-            return total ? total : result;
-        if (!result) {
+        if (result == AVERROR_EOF) {
             if (i + 1 == data->length ||
                 ffurl_seek(nodes[++i].uc, 0, SEEK_SET) < 0)
                 break;
+            result = 0;
         }
+        if (result < 0)
+            return total ? total : result;
         total += result;
         buf   += result;
         size  -= result;
     }
     data->current = i;
-    return total;
+    return total ? total : result;
 }
 
 static int64_t concat_seek(URLContext *h, int64_t pos, int whence)

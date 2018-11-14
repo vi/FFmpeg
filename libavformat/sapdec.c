@@ -74,7 +74,7 @@ static int sap_read_header(AVFormatContext *s)
         return AVERROR(EIO);
 
     av_url_split(NULL, 0, NULL, 0, host, sizeof(host), &port,
-                 path, sizeof(path), s->filename);
+                 path, sizeof(path), s->url);
     if (port < 0)
         port = 9875;
 
@@ -87,7 +87,7 @@ static int sap_read_header(AVFormatContext *s)
                 port);
     ret = ffurl_open_whitelist(&sap->ann_fd, url, AVIO_FLAG_READ,
                                &s->interrupt_callback, NULL,
-                               s->protocol_whitelist, s->protocol_blacklist);
+                               s->protocol_whitelist, s->protocol_blacklist, NULL);
     if (ret)
         goto fail;
 
@@ -176,7 +176,7 @@ static int sap_read_header(AVFormatContext *s)
             goto fail;
         }
         st->id = i;
-        avcodec_copy_context(st->codec, sap->sdp_ctx->streams[i]->codec);
+        avcodec_parameters_copy(st->codecpar, sap->sdp_ctx->streams[i]->codecpar);
         st->time_base = sap->sdp_ctx->streams[i]->time_base;
     }
 
@@ -225,7 +225,7 @@ static int sap_fetch_packet(AVFormatContext *s, AVPacket *pkt)
                 return AVERROR(ENOMEM);
             }
             st->id = i;
-            avcodec_copy_context(st->codec, sap->sdp_ctx->streams[i]->codec);
+            avcodec_parameters_copy(st->codecpar, sap->sdp_ctx->streams[i]->codecpar);
             st->time_base = sap->sdp_ctx->streams[i]->time_base;
         }
     }

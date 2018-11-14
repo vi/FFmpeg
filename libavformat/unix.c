@@ -72,6 +72,9 @@ static int unix_open(URLContext *h, const char *filename, int flags)
     if ((fd = ff_socket(AF_UNIX, s->type, 0)) < 0)
         return ff_neterrno();
 
+    if (s->timeout < 0 && h->rw_timeout)
+        s->timeout = h->rw_timeout / 1000;
+
     if (s->listen) {
         ret = ff_listen_bind(fd, (struct sockaddr *)&s->addr,
                              sizeof(s->addr), s->timeout, h);
@@ -108,6 +111,8 @@ static int unix_read(URLContext *h, uint8_t *buf, int size)
             return ret;
     }
     ret = recv(s->fd, buf, size, 0);
+    if (!ret && s->type == SOCK_STREAM)
+        return AVERROR_EOF;
     return ret < 0 ? ff_neterrno() : ret;
 }
 
