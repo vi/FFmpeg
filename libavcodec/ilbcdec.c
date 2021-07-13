@@ -408,11 +408,11 @@ static void lsf2poly(int16_t *a, int16_t *lsf)
 
     a[0] = 4096;
     for (i = 5; i > 0; i--) {
-        tmp = f[0][6 - i] + (unsigned)f[1][6 - i];
-        a[6 - i] = (tmp + 4096) >> 13;
+        tmp = f[0][6 - i] + (unsigned)f[1][6 - i] + 4096;
+        a[6 - i] = tmp >> 13;
 
-        tmp = f[0][6 - i] - (unsigned)f[1][6 - i];
-        a[5 + i] = (tmp + 4096) >> 13;
+        tmp = f[0][6 - i] - (unsigned)f[1][6 - i] + 4096;
+        a[5 + i] = tmp >> 13;
     }
 }
 
@@ -724,7 +724,7 @@ static void construct_vector (
     int16_t cbvec0[SUBL];
     int16_t cbvec1[SUBL];
     int16_t cbvec2[SUBL];
-    int32_t a32;
+    unsigned a32;
     int16_t *gainPtr;
     int j;
 
@@ -747,7 +747,7 @@ static void construct_vector (
         a32 += SPL_MUL_16_16(*gainPtr++, cbvec1[j]);
         a32 += SPL_MUL_16_16(*gainPtr, cbvec2[j]);
         gainPtr -= 2;
-        decvector[j] = (a32 + 8192) >> 14;
+        decvector[j] = (int)(a32 + 8192) >> 14;
     }
 }
 
@@ -1303,7 +1303,8 @@ static int xcorr_coeff(int16_t *target, int16_t *regressor,
         pos += step;
 
         /* Do a +/- to get the next energy */
-        energy += step * ((*rp_end * *rp_end - *rp_beg * *rp_beg) >> shifts);
+        energy += (unsigned)step * ((*rp_end * *rp_end - *rp_beg * *rp_beg) >> shifts);
+
         rp_beg += step;
         rp_end += step;
     }
@@ -1476,13 +1477,14 @@ static av_cold int ilbc_decode_init(AVCodecContext *avctx)
     return 0;
 }
 
-AVCodec ff_ilbc_decoder = {
+const AVCodec ff_ilbc_decoder = {
     .name           = "ilbc",
     .long_name      = NULL_IF_CONFIG_SMALL("iLBC (Internet Low Bitrate Codec)"),
     .type           = AVMEDIA_TYPE_AUDIO,
     .id             = AV_CODEC_ID_ILBC,
     .init           = ilbc_decode_init,
     .decode         = ilbc_decode_frame,
-    .capabilities   = AV_CODEC_CAP_DR1,
+    .capabilities   = AV_CODEC_CAP_DR1 | AV_CODEC_CAP_CHANNEL_CONF,
     .priv_data_size = sizeof(ILBCContext),
+    .caps_internal  = FF_CODEC_CAP_INIT_THREADSAFE,
 };

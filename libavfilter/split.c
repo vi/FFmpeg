@@ -26,6 +26,7 @@
 #include <stdio.h>
 
 #include "libavutil/attributes.h"
+#include "libavutil/avstring.h"
 #include "libavutil/internal.h"
 #include "libavutil/mem.h"
 #include "libavutil/opt.h"
@@ -48,12 +49,10 @@ static av_cold int split_init(AVFilterContext *ctx)
     int i, ret;
 
     for (i = 0; i < s->nb_outputs; i++) {
-        char name[32];
         AVFilterPad pad = { 0 };
 
-        snprintf(name, sizeof(name), "output%d", i);
         pad.type = ctx->filter->inputs[0].type;
-        pad.name = av_strdup(name);
+        pad.name = av_asprintf("output%d", i);
         if (!pad.name)
             return AVERROR(ENOMEM);
 
@@ -120,7 +119,7 @@ static const AVFilterPad avfilter_vf_split_inputs[] = {
     { NULL }
 };
 
-AVFilter ff_vf_split = {
+const AVFilter ff_vf_split = {
     .name        = "split",
     .description = NULL_IF_CONFIG_SMALL("Pass on the input to N video outputs."),
     .priv_size   = sizeof(SplitContext),
@@ -141,7 +140,7 @@ static const AVFilterPad avfilter_af_asplit_inputs[] = {
     { NULL }
 };
 
-AVFilter ff_af_asplit = {
+const AVFilter ff_af_asplit = {
     .name        = "asplit",
     .description = NULL_IF_CONFIG_SMALL("Pass on the audio input to N audio outputs."),
     .priv_size   = sizeof(SplitContext),

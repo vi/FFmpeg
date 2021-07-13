@@ -86,7 +86,7 @@ typedef struct HueContext {
 } HueContext;
 
 #define OFFSET(x) offsetof(HueContext, x)
-#define FLAGS AV_OPT_FLAG_VIDEO_PARAM|AV_OPT_FLAG_FILTERING_PARAM
+#define FLAGS AV_OPT_FLAG_VIDEO_PARAM|AV_OPT_FLAG_FILTERING_PARAM|AV_OPT_FLAG_RUNTIME_PARAM
 static const AVOption hue_options[] = {
     { "h", "set the hue angle degrees expression", OFFSET(hue_deg_expr), AV_OPT_TYPE_STRING,
       { .str = NULL }, .flags = FLAGS },
@@ -136,7 +136,7 @@ static inline void create_chrominance_lut(HueContext *h, const int32_t c,
      */
     for (i = 0; i < 256; i++) {
         for (j = 0; j < 256; j++) {
-            /* Normalize the components from range [16;140] to [-112;112] */
+            /* Normalize the components from range [16;240] to [-112;112] */
             u = i - 128;
             v = j - 128;
             /*
@@ -363,9 +363,6 @@ static void apply_lut10(HueContext *s,
     }
 }
 
-#define TS2D(ts) ((ts) == AV_NOPTS_VALUE ? NAN : (double)(ts))
-#define TS2T(ts, tb) ((ts) == AV_NOPTS_VALUE ? NAN : (double)(ts) * av_q2d(tb))
-
 static int filter_frame(AVFilterLink *inlink, AVFrame *inpic)
 {
     HueContext *hue = inlink->dst->priv;
@@ -519,7 +516,7 @@ static const AVFilterPad hue_outputs[] = {
     { NULL }
 };
 
-AVFilter ff_vf_hue = {
+const AVFilter ff_vf_hue = {
     .name            = "hue",
     .description     = NULL_IF_CONFIG_SMALL("Adjust the hue and saturation of the input video."),
     .priv_size       = sizeof(HueContext),

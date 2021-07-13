@@ -590,7 +590,9 @@ static av_cold void uninit(AVFilterContext *ctx)
 
         for (j = 0; j < MAX_THREADS; j++) {
             av_fft_end(s->fft[i][j]);
+            s->fft[i][j] = NULL;
             av_fft_end(s->ifft[i][j]);
+            s->ifft[i][j] = NULL;
         }
     }
 
@@ -623,7 +625,7 @@ static const AVFilterPad convolve_outputs[] = {
 
 FRAMESYNC_DEFINE_CLASS(convolve, ConvolveContext, fs);
 
-AVFilter ff_vf_convolve = {
+const AVFilter ff_vf_convolve = {
     .name          = "convolve",
     .description   = NULL_IF_CONFIG_SMALL("Convolve first video stream with second video stream."),
     .preinit       = convolve_framesync_preinit,
@@ -653,7 +655,7 @@ static const AVOption deconvolve_options[] = {
 
 FRAMESYNC_DEFINE_CLASS(deconvolve, ConvolveContext, fs);
 
-AVFilter ff_vf_deconvolve = {
+const AVFilter ff_vf_deconvolve = {
     .name          = "deconvolve",
     .description   = NULL_IF_CONFIG_SMALL("Deconvolve first video stream with second video stream."),
     .preinit       = deconvolve_framesync_preinit,

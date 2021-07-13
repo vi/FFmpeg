@@ -35,7 +35,7 @@ typedef struct SERDemuxerContext {
     int64_t end;
 } SERDemuxerContext;
 
-static int ser_probe(AVProbeData *pd)
+static int ser_probe(const AVProbeData *pd)
 {
     if (memcmp(pd->buf, SER_MAGIC, 14) == 0)
         return AVPROBE_SCORE_MAX;
@@ -132,7 +132,7 @@ static const AVClass ser_demuxer_class = {
     .version    = LIBAVUTIL_VERSION_INT,
 };
 
-AVInputFormat ff_ser_demuxer = {
+const AVInputFormat ff_ser_demuxer = {
     .name           = "ser",
     .long_name      = NULL_IF_CONFIG_SMALL("SER (Simple uncompressed video format for astronomical capturing)"),
     .priv_data_size = sizeof(SERDemuxerContext),

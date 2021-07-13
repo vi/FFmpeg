@@ -72,8 +72,8 @@ static int get_second_size(char *codec_name)
 static int aa_read_header(AVFormatContext *s)
 {
     int i, j, idx, largest_idx = -1;
-    uint32_t nkey, nval, toc_size, npairs, header_seed = 0, start;
-    char key[128], val[128], codec_name[64] = {0};
+    uint32_t toc_size, npairs, header_seed = 0, start;
+    char codec_name[64] = {0};
     uint8_t output[24], dst[8], src[8];
     int64_t largest_size = -1, current_size = -1, chapter_pos;
     struct toc_entry {
@@ -85,13 +85,14 @@ static int aa_read_header(AVFormatContext *s)
     AADemuxContext *c = s->priv_data;
     AVIOContext *pb = s->pb;
     AVStream *st;
+    int ret;
 
     /* parse .aa header */
     avio_skip(pb, 4); // file size
     avio_skip(pb, 4); // magic string
     toc_size = avio_rb32(pb); // TOC size
     avio_skip(pb, 4); // unidentified integer
-    if (toc_size > MAX_TOC_ENTRIES)
+    if (toc_size > MAX_TOC_ENTRIES || toc_size < 2)
         return AVERROR_INVALIDDATA;
     for (i = 0; i < toc_size; i++) { // read TOC
         avio_skip(pb, 4); // TOC entry index
@@ -103,8 +104,9 @@ static int aa_read_header(AVFormatContext *s)
     if (npairs > MAX_DICTIONARY_ENTRIES)
         return AVERROR_INVALIDDATA;
     for (i = 0; i < npairs; i++) {
-        memset(val, 0, sizeof(val));
-        memset(key, 0, sizeof(key));
+        char key[128], val[128];
+        uint32_t nkey, nval;
+
         avio_skip(pb, 1); // unidentified integer
         nkey = avio_rb32(pb); // key string length
         nval = avio_rb32(pb); // value string length
@@ -112,14 +114,18 @@ static int aa_read_header(AVFormatContext *s)
         avio_get_str(pb, nval, val, sizeof(val));
         if (!strcmp(key, "codec")) {
             av_log(s, AV_LOG_DEBUG, "Codec is <%s>\n", val);
-            strncpy(codec_name, val, sizeof(codec_name) - 1);
+            av_strlcpy(codec_name, val, sizeof(codec_name));
         } else if (!strcmp(key, "HeaderSeed")) {
             av_log(s, AV_LOG_DEBUG, "HeaderSeed is <%s>\n", val);
             header_seed = atoi(val);
         } else if (!strcmp(key, "HeaderKey")) { // this looks like "1234567890 1234567890 1234567890 1234567890"
             av_log(s, AV_LOG_DEBUG, "HeaderKey is <%s>\n", val);
-            sscanf(val, "%"SCNu32"%"SCNu32"%"SCNu32"%"SCNu32,
+
+            ret = sscanf(val, "%"SCNu32"%"SCNu32"%"SCNu32"%"SCNu32,
                    &header_key_part[0], &header_key_part[1], &header_key_part[2], &header_key_part[3]);
+            if (ret != 4)
+                return AVERROR_INVALIDDATA;
+
             for (idx = 0; idx < 4; idx++) {
                 AV_WB32(&header_key[idx * 4], header_key_part[idx]); // convert each part to BE!
             }
@@ -169,15 +175,13 @@ static int aa_read_header(AVFormatContext *s)
 
     /* decoder setup */
     st = avformat_new_stream(s, NULL);
-    if (!st) {
-        av_freep(&c->tea_ctx);
+    if (!st)
         return AVERROR(ENOMEM);
-    }
     st->codecpar->codec_type = AVMEDIA_TYPE_AUDIO;
     if (!strcmp(codec_name, "mp332")) {
         st->codecpar->codec_id = AV_CODEC_ID_MP3;
         st->codecpar->sample_rate = 22050;
-        st->need_parsing = AVSTREAM_PARSE_FULL_RAW;
+        st->internal->need_parsing = AVSTREAM_PARSE_FULL_RAW;
         avpriv_set_pts_info(st, 64, 8, 32000 * TIMEPREC);
         // encoded audio frame is MP3_FRAME_SIZE bytes (+1 with padding, unlikely)
     } else if (!strcmp(codec_name, "acelp85")) {
@@ -186,7 +190,7 @@ static int aa_read_header(AVFormatContext *s)
         st->codecpar->channels = 1;
         st->codecpar->sample_rate = 8500;
         st->codecpar->bit_rate = 8500;
-        st->need_parsing = AVSTREAM_PARSE_FULL_RAW;
+        st->internal->need_parsing = AVSTREAM_PARSE_FULL_RAW;
         avpriv_set_pts_info(st, 64, 8, 8500 * TIMEPREC);
     } else if (!strcmp(codec_name, "acelp16")) {
         st->codecpar->codec_id = AV_CODEC_ID_SIPR;
@@ -194,7 +198,7 @@ static int aa_read_header(AVFormatContext *s)
         st->codecpar->channels = 1;
         st->codecpar->sample_rate = 16000;
         st->codecpar->bit_rate = 16000;
-        st->need_parsing = AVSTREAM_PARSE_FULL_RAW;
+        st->internal->need_parsing = AVSTREAM_PARSE_FULL_RAW;
         avpriv_set_pts_info(st, 64, 8, 16000 * TIMEPREC);
     }
 
@@ -216,19 +220,21 @@ static int aa_read_header(AVFormatContext *s)
     c->content_end = start + largest_size;
 
     while ((chapter_pos = avio_tell(pb)) >= 0 && chapter_pos < c->content_end) {
-        int chapter_idx = s->nb_chapters;
+        unsigned chapter_idx = s->nb_chapters;
         uint32_t chapter_size = avio_rb32(pb);
-        if (chapter_size == 0) break;
+        if (chapter_size == 0 || avio_feof(pb))
+            break;
         chapter_pos -= start + CHAPTER_HEADER_SIZE * chapter_idx;
         avio_skip(pb, 4 + chapter_size);
         if (!avpriv_new_chapter(s, chapter_idx, st->time_base,
-            chapter_pos * TIMEPREC, (chapter_pos + chapter_size) * TIMEPREC, NULL))
-                return AVERROR(ENOMEM);
+                                chapter_pos * TIMEPREC,
+                                (chapter_pos + chapter_size) * TIMEPREC, NULL))
+            return AVERROR(ENOMEM);
     }
 
     st->duration = (largest_size - CHAPTER_HEADER_SIZE * s->nb_chapters) * TIMEPREC;
 
-    ff_update_cur_dts(s, st, 0);
+    avpriv_update_cur_dts(s, st, 0);
     avio_seek(pb, start, SEEK_SET);
     c->current_chapter_size = 0;
     c->seek_offset = 0;
@@ -355,12 +361,12 @@ static int aa_read_seek(AVFormatContext *s,
         c->seek_offset = (MP3_FRAME_SIZE - chapter_pos % MP3_FRAME_SIZE) % MP3_FRAME_SIZE;
     }
 
-    ff_update_cur_dts(s, s->streams[0], ch->start + (chapter_pos + c->seek_offset) * TIMEPREC);
+    avpriv_update_cur_dts(s, s->streams[0], ch->start + (chapter_pos + c->seek_offset) * TIMEPREC);
 
     return 1;
 }
 
-static int aa_probe(AVProbeData *p)
+static int aa_probe(const AVProbeData *p)
 {
     uint8_t *buf = p->buf;
 
@@ -396,7 +402,7 @@ static const AVClass aa_class = {
     .version    = LIBAVUTIL_VERSION_INT,
 };
 
-AVInputFormat ff_aa_demuxer = {
+const AVInputFormat ff_aa_demuxer = {
     .name           = "aa",
     .long_name      = NULL_IF_CONFIG_SMALL("Audible AA format files"),
     .priv_class     = &aa_class,
@@ -408,4 +414,5 @@ AVInputFormat ff_aa_demuxer = {
     .read_seek      = aa_read_seek,
     .read_close     = aa_read_close,
     .flags          = AVFMT_NO_BYTE_SEEK | AVFMT_NOGENSEARCH,
+    .flags_internal = FF_FMT_INIT_CLEANUP,
 };

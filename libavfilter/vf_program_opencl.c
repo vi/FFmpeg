@@ -144,7 +144,8 @@ static int program_opencl_run(AVFilterContext *avctx)
             goto fail;
 
         av_log(avctx, AV_LOG_DEBUG, "Run kernel on plane %d "
-               "(%zux%zu).\n", plane, global_work[0], global_work[1]);
+               "(%"SIZE_SPECIFIER"x%"SIZE_SPECIFIER").\n",
+               plane, global_work[0], global_work[1]);
 
         cle = clEnqueueNDRangeKernel(ctx->command_queue, ctx->kernel, 2, NULL,
                                      global_work, NULL, 0, NULL, NULL);
@@ -361,7 +362,7 @@ static const AVFilterPad program_opencl_outputs[] = {
     { NULL }
 };
 
-AVFilter ff_vf_program_opencl = {
+const AVFilter ff_vf_program_opencl = {
     .name           = "program_opencl",
     .description    = NULL_IF_CONFIG_SMALL("Filter video using an OpenCL program"),
     .priv_size      = sizeof(ProgramOpenCLContext),
@@ -414,7 +415,7 @@ static const AVFilterPad openclsrc_outputs[] = {
     { NULL }
 };
 
-AVFilter ff_vsrc_openclsrc = {
+const AVFilter ff_vsrc_openclsrc = {
     .name           = "openclsrc",
     .description    = NULL_IF_CONFIG_SMALL("Generate video using an OpenCL program"),
     .priv_size      = sizeof(ProgramOpenCLContext),

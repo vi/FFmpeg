@@ -75,20 +75,9 @@ static int h264_get_br_factor(int profile_idc)
     return 1200;
 }
 
-const H264LevelDescriptor *ff_h264_get_level(int level_idc,
-                                             int constraint_set3_flag)
-{
-    int i;
-    for (i = 0; i < FF_ARRAY_ELEMS(h264_levels); i++) {
-        if (h264_levels[i].level_idc            == level_idc &&
-            h264_levels[i].constraint_set3_flag == constraint_set3_flag)
-            return &h264_levels[i];
-    }
-    return NULL;
-}
-
 const H264LevelDescriptor *ff_h264_guess_level(int profile_idc,
                                                int64_t bitrate,
+                                               int framerate,
                                                int width, int height,
                                                int max_dec_frame_buffering)
 {
@@ -119,6 +108,9 @@ const H264LevelDescriptor *ff_h264_guess_level(int profile_idc,
             int max_dpb_frames =
                 FFMIN(level->max_dpb_mbs / (width_mbs * height_mbs), 16);
             if (max_dec_frame_buffering > max_dpb_frames)
+                continue;
+
+            if (framerate > (level->max_mbps / (width_mbs * height_mbs)))
                 continue;
         }
 
