@@ -2278,6 +2278,7 @@ SYSTEM_FUNCS="
     strerror_r
     sysconf
     sysctl
+    tempnam
     usleep
     UTGetOSTypeFromString
     VirtualAlloc
@@ -5624,6 +5625,10 @@ case $target_os in
         ;;
     none)
         ;;
+    wasi)
+        add_cflags -D_WASI_EMULATED_SIGNAL
+        add_extralibs -lwasi-emulated-signal
+        ;;
     *)
         die "Unknown OS '$target_os'."
         ;;
@@ -6170,7 +6175,24 @@ check_struct "sys/stat.h" "struct stat" st_mtim.tv_nsec -D_BSD_SOURCE
 check_func  strerror_r
 check_func  sysconf
 check_func  sysctl
+check_func  tempnam
 check_func  usleep
+
+
+case $target_os in
+    wasi)
+        disable mmap
+        disable mprotect
+        disable fork
+        disable sysctl
+        disable gethrtime
+        disable getrusage
+        disable setrlimit
+        disable mkstemp
+        disable tempnam
+        disable threads
+        ;;
+esac
 
 check_func_headers conio.h kbhit
 check_func_headers io.h setmode

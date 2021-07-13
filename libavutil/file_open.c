@@ -112,12 +112,18 @@ int avpriv_tempfile(const char *prefix, char **filename, int log_offset, void *l
     FileLogContext file_log_ctx = { &file_log_ctx_class, log_offset, log_ctx };
     int fd = -1;
 #if !HAVE_MKSTEMP
+# if HAVE_TEMPNAM
     void *ptr= tempnam(NULL, prefix);
     if(!ptr)
         ptr= tempnam(".", prefix);
     *filename = av_strdup(ptr);
 #undef free
     free(ptr);
+# else
+    av_log(&file_log_ctx, AV_LOG_ERROR, "ff_tempfile: Temporary files not supported on this platform (failed %s)\n", *filename);
+    av_freep(filename);
+    return AVERROR_UNKNOWN;
+# endif
 #else
     size_t len = strlen(prefix) + 12; /* room for "/tmp/" and "XXXXXX\0" */
     *filename  = av_malloc(len);
